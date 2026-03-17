@@ -10,6 +10,40 @@ import streamlit as st
 
 st.set_page_config(page_title="BayesIQ Dashboard", layout="wide")
 
+
+def _fmt_period(series):
+    """Shorten period strings for compact x-axis labels."""
+    def _shorten(s):
+        # Weekly: "2025-12-01/2025-12-07" → "Dec 1"
+        if "/" in s:
+            s = s.split("/")[0]
+        # Monthly: "2025-12" → "Dec '25"
+        parts = s.split("-")
+        if len(parts) >= 2:
+            import calendar
+            try:
+                mon = calendar.month_abbr[int(parts[1])]
+                if len(parts) == 2:
+                    return f"{mon} '{parts[0][2:]}"
+                return f"{mon} {int(parts[2])}"
+            except (ValueError, IndexError):
+                pass
+        return s
+    return series.map(_shorten)
+
+
+def _humanize_label(col_name):
+    """Convert snake_case column name to human-readable axis label."""
+    return col_name.replace("_", " ").title()
+
+
+def _polish_fig(fig, y_col, show_legend=True):
+    """Apply consistent axis and legend polish to a Plotly figure."""
+    fig.update_yaxes(title_text=_humanize_label(y_col))
+    fig.update_xaxes(title_text="", tickangle=-30)
+    if not show_legend:
+        fig.update_layout(showlegend=False)
+
 @st.cache_data
 def load_data(path):
     """Load and clean the dataset from a file path."""
@@ -272,11 +306,14 @@ def main():
 
         _compact = dict(height=260, margin=dict(l=40, r=20, t=40, b=30),
                         title_font_size=13,
-                        legend=dict(orientation="h", y=-0.25, font=dict(size=12)))
+                        legend=dict(orientation="h", y=-0.25, font=dict(size=10)))
 
         _dim_options = ["Topline", "department", "provider_type", "insurance_type", "facility"]
         _sel_dim = st.radio("Dimension", _dim_options, index=0, horizontal=True, key="dim_radio")
         _dim_col = None if _sel_dim == "Topline" else _sel_dim
+
+        # When in dimension mode, only show legend on first chart
+        _legend_shown = False
 
         # --- Row 1 ---
         r1c1, r1c2, r1c3 = st.columns(3)
@@ -289,24 +326,27 @@ def main():
                 den_dim = den_df.groupby([den_df["admission_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 ratio_dim = (num_dim / den_dim).stack().reset_index()
                 ratio_dim.columns = ["period", _dim_col, "readmission_rate"]
-                ratio_dim["period"] = ratio_dim["period"].astype(str)
+                ratio_dim["period"] = _fmt_period(ratio_dim["period"].astype(str))
                 if ratio_dim.empty:
                     st.info("No data for Readmission Rate.")
                 else:
                     fig = px.line(ratio_dim, x="period", y="readmission_rate", color=_dim_col, title="Readmission Rate (%)", markers=True)
                     fig.update_layout(**_compact)
+                    _polish_fig(fig, "readmission_rate", show_legend=not _legend_shown)
+                    _legend_shown = True
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 den_grouped = den_df.groupby(den_df["admission_date"].dt.to_period(_period)).size()
                 num_grouped = num_df.groupby(num_df["admission_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
                 ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
                 ratio_df.columns = ["period", "readmission_rate"]
-                ratio_df["period"] = ratio_df["period"].astype(str)
+                ratio_df["period"] = _fmt_period(ratio_df["period"].astype(str))
                 if ratio_df.empty:
                     st.info("No data for Readmission Rate.")
                 else:
                     fig = px.line(ratio_df, x="period", y="readmission_rate", title="Readmission Rate (%)", markers=True)
                     fig.update_layout(**_compact)
+                    _polish_fig(fig, "readmission_rate")
                     st.plotly_chart(fig, use_container_width=True)
 
         with r1c2:
@@ -314,14 +354,17 @@ def main():
             if _dim_col and _dim_col in metric_df.columns:
                 grouped = metric_df.groupby([metric_df["admission_date"].dt.to_period(_period), _dim_col]).size().reset_index()
                 grouped.columns = ["period", _dim_col, "throughput"]
-                grouped["period"] = grouped["period"].astype(str)
+                grouped["period"] = _fmt_period(grouped["period"].astype(str))
                 fig = px.bar(grouped, x="period", y="throughput", color=_dim_col, title="Throughput", barmode="group")
             else:
                 grouped = metric_df.groupby(metric_df["admission_date"].dt.to_period(_period)).size().reset_index()
                 grouped.columns = ["period", "throughput"]
-                grouped["period"] = grouped["period"].astype(str)
+                grouped["period"] = _fmt_period(grouped["period"].astype(str))
                 fig = px.bar(grouped, x="period", y="throughput", title="Throughput")
             fig.update_layout(**_compact)
+            _polish_fig(fig, "throughput", show_legend=not _legend_shown and _dim_col is not None)
+            if _dim_col:
+                _legend_shown = True
             st.plotly_chart(fig, use_container_width=True)
 
         with r1c3:
@@ -332,14 +375,17 @@ def main():
                 if _dim_col and _dim_col in metric_df.columns:
                     grouped = metric_df.groupby([metric_df["admission_date"].dt.to_period(_period), _dim_col])["charge_amount"].sum().reset_index()
                     grouped.columns = ["period", _dim_col, "charge_capture"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.bar(grouped, x="period", y="charge_capture", color=_dim_col, title="Charge Capture ($)", barmode="group")
                 else:
                     grouped = metric_df.groupby(metric_df["admission_date"].dt.to_period(_period))["charge_amount"].sum().reset_index()
                     grouped.columns = ["period", "charge_capture"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.bar(grouped, x="period", y="charge_capture", title="Charge Capture ($)")
                 fig.update_layout(**_compact)
+                _polish_fig(fig, "charge_capture", show_legend=not _legend_shown and _dim_col is not None)
+                if _dim_col:
+                    _legend_shown = True
                 st.plotly_chart(fig, use_container_width=True)
 
         # --- Row 2 ---
@@ -353,14 +399,17 @@ def main():
                 if _dim_col and _dim_col in metric_df.columns:
                     grouped = metric_df.groupby([metric_df["admission_date"].dt.to_period(_period), _dim_col])["length_of_stay"].mean().reset_index()
                     grouped.columns = ["period", _dim_col, "length_of_stay"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.line(grouped, x="period", y="length_of_stay", color=_dim_col, title="Length Of Stay (days)", markers=True)
                 else:
                     grouped = metric_df.groupby(metric_df["admission_date"].dt.to_period(_period))["length_of_stay"].mean().reset_index()
                     grouped.columns = ["period", "length_of_stay"]
-                    grouped["period"] = grouped["period"].astype(str)
+                    grouped["period"] = _fmt_period(grouped["period"].astype(str))
                     fig = px.line(grouped, x="period", y="length_of_stay", title="Length Of Stay (days)", markers=True)
                 fig.update_layout(**_compact)
+                _polish_fig(fig, "length_of_stay", show_legend=not _legend_shown and _dim_col is not None)
+                if _dim_col:
+                    _legend_shown = True
                 st.plotly_chart(fig, use_container_width=True)
 
         with r2c2:
@@ -371,36 +420,40 @@ def main():
                 den_dim = den_df.groupby([den_df["admission_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 ratio_dim = (num_dim / den_dim).stack().reset_index()
                 ratio_dim.columns = ["period", _dim_col, "coding_accuracy"]
-                ratio_dim["period"] = ratio_dim["period"].astype(str)
+                ratio_dim["period"] = _fmt_period(ratio_dim["period"].astype(str))
                 if ratio_dim.empty:
                     st.info("No data for Coding Accuracy.")
                 else:
                     fig = px.line(ratio_dim, x="period", y="coding_accuracy", color=_dim_col, title="Coding Accuracy (%)", markers=True)
                     fig.update_layout(**_compact)
+                    _polish_fig(fig, "coding_accuracy", show_legend=not _legend_shown and _dim_col is not None)
+                    if _dim_col:
+                        _legend_shown = True
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 den_grouped = den_df.groupby(den_df["admission_date"].dt.to_period(_period)).size()
                 num_grouped = num_df.groupby(num_df["admission_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
                 ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
                 ratio_df.columns = ["period", "coding_accuracy"]
-                ratio_df["period"] = ratio_df["period"].astype(str)
+                ratio_df["period"] = _fmt_period(ratio_df["period"].astype(str))
                 if ratio_df.empty:
                     st.info("No data for Coding Accuracy.")
                 else:
                     fig = px.line(ratio_df, x="period", y="coding_accuracy", title="Coding Accuracy (%)", markers=True)
                     fig.update_layout(**_compact)
+                    _polish_fig(fig, "coding_accuracy")
                     st.plotly_chart(fig, use_container_width=True)
 
         with r2c3:
-            st.markdown("**KPI Summary**")
-            st.metric("Total Rows", f"{len(df):,}")
+            st.markdown("##### KPI Summary")
+            st.markdown(f"**Total Rows:** {len(df):,}")
             if "admission_date" in df.columns:
                 _min = df["admission_date"].min().strftime("%Y-%m-%d")
                 _max = df["admission_date"].max().strftime("%Y-%m-%d")
-                st.metric("Date Range", f"{_min} to {_max}")
+                st.markdown(f"**Date Range:** {_min} to {_max}")
             if "length_of_stay" in df.columns:
                 _avg_los = df["length_of_stay"].mean()
-                st.metric("Avg Length of Stay", f"{_avg_los:.1f} days")
+                st.markdown(f"**Avg Length of Stay:** {_avg_los:.1f} days")
 
     with tabs[1]:
         st.header("Data Quality Summary")
