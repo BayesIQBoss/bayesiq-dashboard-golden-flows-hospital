@@ -270,166 +270,137 @@ def main():
     with tabs[0]:
         st.header("Business Metrics")
 
-        st.subheader("Readmission Rate")
+        _compact = dict(height=260, margin=dict(l=40, r=20, t=40, b=30),
+                        title_font_size=13,
+                        legend=dict(orientation="h", y=-0.25, font=dict(size=12)))
 
-        _dim_options_readmission_rate = ['department', 'provider_type', 'insurance_type', 'facility', 'diagnosis_code', 'drg_code', 'length_of_stay', 'readmission_flag', 'valid_coding_flag']
-        _sel_dim_readmission_rate = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_readmission_rate,
-            key="dim_picker_readmission_rate")
+        _dim_options = ["Topline", "department", "provider_type", "insurance_type", "facility"]
+        _sel_dim = st.radio("Dimension", _dim_options, index=0, horizontal=True, key="dim_radio")
+        _dim_col = None if _sel_dim == "Topline" else _sel_dim
 
-        num_df = df[(df["readmission_flag"] == 1)]
-        den_df = df[(df["discharge_flag"] == 1)]
-        den_grouped = den_df.groupby(den_df["admission_date"].dt.to_period(_period)).size()
-        num_grouped = num_df.groupby(num_df["admission_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
-        ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
-        ratio_df.columns = ["period", "readmission_rate"]
-        ratio_df["period"] = ratio_df["period"].astype(str)
+        # --- Row 1 ---
+        r1c1, r1c2, r1c3 = st.columns(3)
 
-        if ratio_df.empty:
-            st.info("No data for Readmission Rate in this period.")
-        else:
-            fig = px.line(ratio_df, x="period", y="readmission_rate", title="Readmission Rate Over Time", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-
-        if _sel_dim_readmission_rate != "(none)":
-            _dim_col = _sel_dim_readmission_rate
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in num_df.columns:
+        with r1c1:
+            num_df = df[(df["readmission_flag"] == 1)]
+            den_df = df[(df["discharge_flag"] == 1)]
+            if _dim_col and _dim_col in num_df.columns:
                 num_dim = num_df.groupby([num_df["admission_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 den_dim = den_df.groupby([den_df["admission_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 ratio_dim = (num_dim / den_dim).stack().reset_index()
                 ratio_dim.columns = ["period", _dim_col, "readmission_rate"]
                 ratio_dim["period"] = ratio_dim["period"].astype(str)
-                fig2 = px.line(ratio_dim, x="period", y="readmission_rate", color=_dim_col, title=f"Readmission Rate by {_dim_label}", markers=True)
-                st.plotly_chart(fig2, use_container_width=True)
+                if ratio_dim.empty:
+                    st.info("No data for Readmission Rate.")
+                else:
+                    fig = px.line(ratio_dim, x="period", y="readmission_rate", color=_dim_col, title="Readmission Rate (%)", markers=True)
+                    fig.update_layout(**_compact)
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                den_grouped = den_df.groupby(den_df["admission_date"].dt.to_period(_period)).size()
+                num_grouped = num_df.groupby(num_df["admission_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
+                ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
+                ratio_df.columns = ["period", "readmission_rate"]
+                ratio_df["period"] = ratio_df["period"].astype(str)
+                if ratio_df.empty:
+                    st.info("No data for Readmission Rate.")
+                else:
+                    fig = px.line(ratio_df, x="period", y="readmission_rate", title="Readmission Rate (%)", markers=True)
+                    fig.update_layout(**_compact)
+                    st.plotly_chart(fig, use_container_width=True)
 
-        st.divider()
-
-        st.subheader("Throughput")
-
-        _dim_options_throughput = ['department', 'provider_type', 'insurance_type', 'facility', 'diagnosis_code', 'drg_code', 'length_of_stay', 'readmission_flag', 'valid_coding_flag']
-        _sel_dim_throughput = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_throughput,
-            key="dim_picker_throughput")
-
-        metric_df = df
-        grouped = metric_df.groupby(metric_df["admission_date"].dt.to_period(_period)).size().reset_index()
-        grouped.columns = ["period", "throughput"]
-        grouped["period"] = grouped["period"].astype(str)
-
-        fig = px.bar(grouped, x="period", y="throughput", title="Throughput Over Time")
-        st.plotly_chart(fig, use_container_width=True)
-
-        if _sel_dim_throughput != "(none)":
-            _dim_col = _sel_dim_throughput
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in metric_df.columns:
-                dim_grouped = metric_df.groupby([metric_df["admission_date"].dt.to_period(_period), _dim_col]).size().reset_index()
-                dim_grouped.columns = ["period", _dim_col, "throughput"]
-                dim_grouped["period"] = dim_grouped["period"].astype(str)
-                fig2 = px.bar(dim_grouped, x="period", y="throughput", color=_dim_col, title=f"Throughput by {_dim_label}", barmode="group")
-                st.plotly_chart(fig2, use_container_width=True)
-
-        st.divider()
-
-        st.subheader("Charge Capture")
-
-        _dim_options_charge_capture = ['department', 'provider_type', 'insurance_type', 'facility', 'diagnosis_code', 'drg_code', 'length_of_stay', 'readmission_flag', 'valid_coding_flag']
-        _sel_dim_charge_capture = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_charge_capture,
-            key="dim_picker_charge_capture")
-
-        metric_df = df
-        if "charge_amount" not in metric_df.columns:
-            st.warning("Column \"charge_amount\" not found in data — skipping Charge Capture.")
-        else:
-            grouped = metric_df.groupby(metric_df["admission_date"].dt.to_period(_period))["charge_amount"].sum().reset_index()
-            grouped.columns = ["period", "charge_capture"]
-            grouped["period"] = grouped["period"].astype(str)
-
-            fig = px.bar(grouped, x="period", y="charge_capture", title="Charge Capture Over Time")
+        with r1c2:
+            metric_df = df
+            if _dim_col and _dim_col in metric_df.columns:
+                grouped = metric_df.groupby([metric_df["admission_date"].dt.to_period(_period), _dim_col]).size().reset_index()
+                grouped.columns = ["period", _dim_col, "throughput"]
+                grouped["period"] = grouped["period"].astype(str)
+                fig = px.bar(grouped, x="period", y="throughput", color=_dim_col, title="Throughput", barmode="group")
+            else:
+                grouped = metric_df.groupby(metric_df["admission_date"].dt.to_period(_period)).size().reset_index()
+                grouped.columns = ["period", "throughput"]
+                grouped["period"] = grouped["period"].astype(str)
+                fig = px.bar(grouped, x="period", y="throughput", title="Throughput")
+            fig.update_layout(**_compact)
             st.plotly_chart(fig, use_container_width=True)
 
-            # Dimension breakdown
-        if _sel_dim_charge_capture != "(none)":
-            _dim_col = _sel_dim_charge_capture
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in metric_df.columns and "charge_amount" in metric_df.columns:
-                dim_grouped = metric_df.groupby([metric_df["admission_date"].dt.to_period(_period), _dim_col])["charge_amount"].sum().reset_index()
-                dim_grouped.columns = ["period", _dim_col, "charge_capture"]
-                dim_grouped["period"] = dim_grouped["period"].astype(str)
-                fig2 = px.bar(dim_grouped, x="period", y="charge_capture", color=_dim_col, title=f"Charge Capture by {_dim_label}", barmode="group")
-                st.plotly_chart(fig2, use_container_width=True)
+        with r1c3:
+            metric_df = df
+            if "charge_amount" not in metric_df.columns:
+                st.warning("Column \"charge_amount\" not found — skipping Charge Capture.")
+            else:
+                if _dim_col and _dim_col in metric_df.columns:
+                    grouped = metric_df.groupby([metric_df["admission_date"].dt.to_period(_period), _dim_col])["charge_amount"].sum().reset_index()
+                    grouped.columns = ["period", _dim_col, "charge_capture"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.bar(grouped, x="period", y="charge_capture", color=_dim_col, title="Charge Capture ($)", barmode="group")
+                else:
+                    grouped = metric_df.groupby(metric_df["admission_date"].dt.to_period(_period))["charge_amount"].sum().reset_index()
+                    grouped.columns = ["period", "charge_capture"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.bar(grouped, x="period", y="charge_capture", title="Charge Capture ($)")
+                fig.update_layout(**_compact)
+                st.plotly_chart(fig, use_container_width=True)
 
+        # --- Row 2 ---
+        r2c1, r2c2, r2c3 = st.columns(3)
 
-        st.divider()
+        with r2c1:
+            metric_df = df
+            if "length_of_stay" not in metric_df.columns:
+                st.warning("Column \"length_of_stay\" not found — skipping Length Of Stay.")
+            else:
+                if _dim_col and _dim_col in metric_df.columns:
+                    grouped = metric_df.groupby([metric_df["admission_date"].dt.to_period(_period), _dim_col])["length_of_stay"].mean().reset_index()
+                    grouped.columns = ["period", _dim_col, "length_of_stay"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.line(grouped, x="period", y="length_of_stay", color=_dim_col, title="Length Of Stay (days)", markers=True)
+                else:
+                    grouped = metric_df.groupby(metric_df["admission_date"].dt.to_period(_period))["length_of_stay"].mean().reset_index()
+                    grouped.columns = ["period", "length_of_stay"]
+                    grouped["period"] = grouped["period"].astype(str)
+                    fig = px.line(grouped, x="period", y="length_of_stay", title="Length Of Stay (days)", markers=True)
+                fig.update_layout(**_compact)
+                st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader("Length Of Stay")
-
-        _dim_options_length_of_stay = ['department', 'provider_type', 'insurance_type', 'facility', 'diagnosis_code', 'drg_code', 'length_of_stay', 'readmission_flag', 'valid_coding_flag']
-        _sel_dim_length_of_stay = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_length_of_stay,
-            key="dim_picker_length_of_stay")
-
-        metric_df = df
-        if "length_of_stay" not in metric_df.columns:
-            st.warning("Column \"length_of_stay\" not found in data — skipping Length Of Stay.")
-        else:
-            grouped = metric_df.groupby(metric_df["admission_date"].dt.to_period(_period))["length_of_stay"].mean().reset_index()
-            grouped.columns = ["period", "length_of_stay"]
-            grouped["period"] = grouped["period"].astype(str)
-
-            fig = px.line(grouped, x="period", y="length_of_stay", title="Length Of Stay Over Time", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-
-            # Dimension breakdown
-        if _sel_dim_length_of_stay != "(none)":
-            _dim_col = _sel_dim_length_of_stay
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in metric_df.columns and "length_of_stay" in metric_df.columns:
-                dim_grouped = metric_df.groupby([metric_df["admission_date"].dt.to_period(_period), _dim_col])["length_of_stay"].mean().reset_index()
-                dim_grouped.columns = ["period", _dim_col, "length_of_stay"]
-                dim_grouped["period"] = dim_grouped["period"].astype(str)
-                fig2 = px.line(dim_grouped, x="period", y="length_of_stay", color=_dim_col, title=f"Length Of Stay by {_dim_label}", markers=True)
-                st.plotly_chart(fig2, use_container_width=True)
-
-
-        st.divider()
-
-        st.subheader("Coding Accuracy")
-
-        _dim_options_coding_accuracy = ['department', 'provider_type', 'insurance_type', 'facility', 'diagnosis_code', 'drg_code', 'length_of_stay', 'readmission_flag', 'valid_coding_flag']
-        _sel_dim_coding_accuracy = st.selectbox(
-            "Break down by", ["(none)"] + _dim_options_coding_accuracy,
-            key="dim_picker_coding_accuracy")
-
-        num_df = df[(df["valid_coding_flag"] == 1)]
-        den_df = df[(df["encounter_flag"] == 1)]
-        den_grouped = den_df.groupby(den_df["admission_date"].dt.to_period(_period)).size()
-        num_grouped = num_df.groupby(num_df["admission_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
-        ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
-        ratio_df.columns = ["period", "coding_accuracy"]
-        ratio_df["period"] = ratio_df["period"].astype(str)
-
-        if ratio_df.empty:
-            st.info("No data for Coding Accuracy in this period.")
-        else:
-            fig = px.line(ratio_df, x="period", y="coding_accuracy", title="Coding Accuracy Over Time", markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-
-        if _sel_dim_coding_accuracy != "(none)":
-            _dim_col = _sel_dim_coding_accuracy
-            _dim_label = _dim_col.replace("_", " ").title()
-            if _dim_col in num_df.columns:
+        with r2c2:
+            num_df = df[(df["valid_coding_flag"] == 1)]
+            den_df = df[(df["encounter_flag"] == 1)]
+            if _dim_col and _dim_col in num_df.columns:
                 num_dim = num_df.groupby([num_df["admission_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 den_dim = den_df.groupby([den_df["admission_date"].dt.to_period(_period), _dim_col]).size().unstack(fill_value=0)
                 ratio_dim = (num_dim / den_dim).stack().reset_index()
                 ratio_dim.columns = ["period", _dim_col, "coding_accuracy"]
                 ratio_dim["period"] = ratio_dim["period"].astype(str)
-                fig2 = px.line(ratio_dim, x="period", y="coding_accuracy", color=_dim_col, title=f"Coding Accuracy by {_dim_label}", markers=True)
-                st.plotly_chart(fig2, use_container_width=True)
+                if ratio_dim.empty:
+                    st.info("No data for Coding Accuracy.")
+                else:
+                    fig = px.line(ratio_dim, x="period", y="coding_accuracy", color=_dim_col, title="Coding Accuracy (%)", markers=True)
+                    fig.update_layout(**_compact)
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                den_grouped = den_df.groupby(den_df["admission_date"].dt.to_period(_period)).size()
+                num_grouped = num_df.groupby(num_df["admission_date"].dt.to_period(_period)).size().reindex(den_grouped.index, fill_value=0)
+                ratio_df = (num_grouped / den_grouped).fillna(0).reset_index()
+                ratio_df.columns = ["period", "coding_accuracy"]
+                ratio_df["period"] = ratio_df["period"].astype(str)
+                if ratio_df.empty:
+                    st.info("No data for Coding Accuracy.")
+                else:
+                    fig = px.line(ratio_df, x="period", y="coding_accuracy", title="Coding Accuracy (%)", markers=True)
+                    fig.update_layout(**_compact)
+                    st.plotly_chart(fig, use_container_width=True)
 
-        st.divider()
+        with r2c3:
+            st.markdown("**KPI Summary**")
+            st.metric("Total Rows", f"{len(df):,}")
+            if "admission_date" in df.columns:
+                _min = df["admission_date"].min().strftime("%Y-%m-%d")
+                _max = df["admission_date"].max().strftime("%Y-%m-%d")
+                st.metric("Date Range", f"{_min} to {_max}")
+            if "length_of_stay" in df.columns:
+                _avg_los = df["length_of_stay"].mean()
+                st.metric("Avg Length of Stay", f"{_avg_los:.1f} days")
 
     with tabs[1]:
         st.header("Data Quality Summary")
